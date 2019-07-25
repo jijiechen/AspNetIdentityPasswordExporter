@@ -11,6 +11,78 @@ namespace AspNetIdentityPasswordExporter
     private readonly int _iterCount;
     private readonly RandomNumberGenerator _rng;
 
+
+
+    public PasswordCredential ReadPassword(string hashedPassword)
+    {
+      if (hashedPassword == null)
+        throw new ArgumentNullException(nameof (hashedPassword));
+      byte[] hashedBytes = Convert.FromBase64String(hashedPassword);
+      if (hashedBytes.Length == 0)
+        return null;
+
+
+    if(hashedBytes[0] == 0){
+        // CompatibilityMode.IdentityV2
+        return null;
+    }
+
+      try
+      {
+        var prfByte = ReadNetworkByteOrder(hashedBytes, 1);
+        int iterCount = (int) ReadNetworkByteOrder(hashedBytes, 5);
+
+        int saltLength = (int) ReadNetworkByteOrder(hashedBytes, 9);
+        if (saltLength < 16)
+          return null;
+
+        byte[] salt = new byte[saltLength];
+        Buffer.BlockCopy((Array) hashedBytes, 13, (Array) salt, 0, salt.Length);
+        int numBytesRequested = hashedPassword.Length - 13 - salt.Length;
+        if (numBytesRequested < 16)
+          return null;
+        
+        byte[] password = new byte[numBytesRequested];
+        Buffer.BlockCopy((Array) hashedBytes, 13 + salt.Length, (Array) password, 0, password.Length);
+        
+        return new PasswordCredential{
+            algorithm = KeyCloakAlgorithmId(prfByte),
+            hashIterations = iterCount,
+            hashedSaltedValue = Convert.ToBase64String(password),
+            salt = Convert.ToBase64String(salt)
+        };
+      }
+      catch
+      {
+        return null;
+      }
+    }
+
+
+    private static string KeyCloakAlgorithmId(uint prfByte){
+        var prf = (KeyDerivationPrf) prfByte;
+        switch (prf){
+            case KeyDerivationPrf.HMACSHA256:
+                return PasswordCredential.Pbkdf2SHA256;
+            case KeyDerivationPrf.HMACSHA512:
+                return PasswordCredential.Pbkdf2SHA512;
+            default:
+                return PasswordCredential.Pbkdf2SHA1;
+        }
+    }
+
+
+    private static bool VerifyHashedPasswordV2(byte[] hashedPassword, string password)
+    {
+      if (hashedPassword.Length != 49)
+        return false;
+      byte[] salt = new byte[16];
+      Buffer.BlockCopy((Array) hashedPassword, 1, (Array) salt, 0, salt.Length);
+      byte[] b = new byte[32];
+      Buffer.BlockCopy((Array) hashedPassword, 1 + salt.Length, (Array) b, 0, b.Length);
+      return ByteArraysEqual(Microsoft.AspNetCore.Cryptography.KeyDerivation.KeyDerivation.Pbkdf2(password, salt, KeyDerivationPrf.HMACSHA1, 1000, 32), b);
+    }
+
     public virtual string HashPassword(string password)
     {
       if (password == null)
@@ -32,6 +104,8 @@ namespace AspNetIdentityPasswordExporter
       Buffer.BlockCopy((Array) numArray2, 0, (Array) numArray4, 17, 32);
       return numArray3;
     }
+
+
 
     private byte[] HashPasswordV3(string password, RandomNumberGenerator rng)
     {
@@ -57,72 +131,6 @@ namespace AspNetIdentityPasswordExporter
       Buffer.BlockCopy((Array) numArray1, 0, (Array) buffer, 13, numArray1.Length);
       Buffer.BlockCopy((Array) numArray2, 0, (Array) buffer, 13 + saltSize, numArray2.Length);
       return buffer;
-    }
-
-
-
-    public PasswordVerificationResult VerifyHashedPassword(string hashedPassword, string providedPassword)
-    {
-      if (hashedPassword == null)
-        throw new ArgumentNullException(nameof (hashedPassword));
-      if (providedPassword == null)
-        throw new ArgumentNullException(nameof (providedPassword));
-      byte[] hashedPassword1 = Convert.FromBase64String(hashedPassword);
-      if (hashedPassword1.Length == 0)
-        return PasswordVerificationResult.Failed;
-      switch (hashedPassword1[0])
-      {
-        case 0:
-          if (!VerifyHashedPasswordV2(hashedPassword1, providedPassword))
-            return PasswordVerificationResult.Failed;
-          return this._compatibilityMode != CompatibilityMode.IdentityV3 ? PasswordVerificationResult.Success : PasswordVerificationResult.SuccessRehashNeeded;
-        case 1:
-          int iterCount;
-          if (!VerifyHashedPasswordV3(hashedPassword1, providedPassword, out iterCount))
-            return PasswordVerificationResult.Failed;
-          return iterCount >= this._iterCount ? PasswordVerificationResult.Success : PasswordVerificationResult.SuccessRehashNeeded;
-        default:
-          return PasswordVerificationResult.Failed;
-      }
-    }
-
-    private static bool VerifyHashedPasswordV2(byte[] hashedPassword, string password)
-    {
-      if (hashedPassword.Length != 49)
-        return false;
-      byte[] salt = new byte[16];
-      Buffer.BlockCopy((Array) hashedPassword, 1, (Array) salt, 0, salt.Length);
-      byte[] b = new byte[32];
-      Buffer.BlockCopy((Array) hashedPassword, 1 + salt.Length, (Array) b, 0, b.Length);
-      return ByteArraysEqual(Microsoft.AspNetCore.Cryptography.KeyDerivation.KeyDerivation.Pbkdf2(password, salt, KeyDerivationPrf.HMACSHA1, 1000, 32), b);
-    }
-
-    private static bool VerifyHashedPasswordV3(
-      byte[] hashedPassword,
-      string password,
-      out int iterCount)
-    {
-      iterCount = 0;
-      try
-      {
-        KeyDerivationPrf prf = (KeyDerivationPrf) ReadNetworkByteOrder(hashedPassword, 1);
-        iterCount = (int) ReadNetworkByteOrder(hashedPassword, 5);
-        int length = (int) ReadNetworkByteOrder(hashedPassword, 9);
-        if (length < 16)
-          return false;
-        byte[] salt = new byte[length];
-        Buffer.BlockCopy((Array) hashedPassword, 13, (Array) salt, 0, salt.Length);
-        int numBytesRequested = hashedPassword.Length - 13 - salt.Length;
-        if (numBytesRequested < 16)
-          return false;
-        byte[] b = new byte[numBytesRequested];
-        Buffer.BlockCopy((Array) hashedPassword, 13 + salt.Length, (Array) b, 0, b.Length);
-        return ByteArraysEqual(Microsoft.AspNetCore.Cryptography.KeyDerivation.KeyDerivation.Pbkdf2(password, salt, prf, iterCount, numBytesRequested), b);
-      }
-      catch
-      {
-        return false;
-      }
     }
 
 
