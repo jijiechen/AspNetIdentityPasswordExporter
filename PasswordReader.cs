@@ -8,7 +8,7 @@ namespace AspNetIdentityPasswordExporter
 
   // ASP.NET Core Identity Password Hasher
   // https://github.com/aspnet/AspNetCore/blob/master/src/Identity/Extensions.Core/src/PasswordHasher.cs
-  
+
     public static PasswordCredential ReadPassword(string hashedPassword)
     {
       if (hashedPassword == null)
@@ -33,7 +33,7 @@ namespace AspNetIdentityPasswordExporter
 
         byte[] salt = new byte[saltLength];
         Buffer.BlockCopy((Array) hashedBytes, 13, (Array) salt, 0, salt.Length);
-        int numBytesRequested = hashedPassword.Length - 13 - salt.Length;
+        int numBytesRequested = hashedBytes.Length - 13 - salt.Length;
         if (numBytesRequested < 16)
           return null;
         

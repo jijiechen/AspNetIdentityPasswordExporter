@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Data.Sqlite;
+using Newtonsoft.Json;
 
 namespace AspNetIdentityPasswordExporter
 {
@@ -30,14 +32,23 @@ namespace AspNetIdentityPasswordExporter
                 }
             }
 
-            users.ForEach(user => Console.WriteLine($"user {user.UserName}, password {user.HashedPassword}"));
+            var allExportedUsers = users.Select(ExportUser).ToArray();
+            Console.WriteLine(JsonConvert.SerializeObject(allExportedUsers));
         }
 
 
+        static ExportedUser ExportUser(IdentityUser user){
+            var exported = new ExportedUser{
+                username = user.UserName
+            };
+
+            var credential = PasswordReader.ReadPassword(user.HashedPassword);
+            exported.credentials.Add(credential);
+            return exported;
+        }
 
 
-
-        public static T ConvertFromDBVal<T>(object obj)
+      static T ConvertFromDBVal<T>(object obj)
         {
             if (obj == null || obj == DBNull.Value)
             {
